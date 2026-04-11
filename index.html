@@ -1,91 +1,200 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registration Form</title>
-
+    <title>Interactive Hand-Tracked Particles</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        canvas { display: block; }
+        #info {
+            position: absolute; top: 10px; left: 10px; color: white;
+            pointer-events: none; text-shadow: 1px 1px 2px black;
         }
-        
-        body {
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-        }
-        
-        .container {
-            background: #fff;
-            max-width: 420px;
-            width: 100%;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, .2);
-        }
-        
-        h2 {
-            text-align: center;
-            margin-bottom: 15px
-        }
-        
-        input,
-        select,
-        button {
-            width: 100%;
-            padding: 10px;
-            margin: 8px 0;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-        
-        button {
-            background: #667eea;
-            color: #fff;
-            border: none;
-            cursor: pointer;
-        }
-        
-        button:hover {
-            background: #556cd6
-        }
+        #video-container { position: fixed; bottom: 10px; right: 10px; width: 150px; border: 2px solid #555; }
+        #webcam { width: 100%; transform: scaleX(-1); }
     </style>
 </head>
-
 <body>
-    <div class="container">
-        <h2>Registration Form</h2>
 
-        <form id="regForm">
-            <input type="text" placeholder="Full Name">
-            <input type="email" placeholder="Email">
-            <input type="password" placeholder="Password">
-
-            <select>
-<option>Male</option>
-<option>Female</option>
-<option>Other</option>
-</select>
-
-            <input type="date">
-            <button type="submit">Register</button>
-        </form>
+    <div id="info">
+        <b>Gesture Controls:</b><br>
+        Open Hand: Expand Particles<br>
+        Pinch/Fist: Change Shape & Color<br>
+        Move Hand: Move Particle Field
     </div>
 
-    <script>
-        document.getElementById("regForm").onsubmit = e => {
-            e.preventDefault();
-            alert("Form submitted successfully!");
-        };
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline></video>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Setup Scene ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        camera.position.z = 5;
+
+        // --- Particle System ---
+        const particleCount = 5000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        
+        for (let i = 0; i < particleCount * 3; i++) {
+            positions[i] = (Math.random() - 0.5) * 10;
+            colors[i] = Math.random();
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const material = new THREE.PointsMaterial({
+            size: 0.05,
+            vertexColors: true,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+
+        const points = new THREE.Points(geometry, material);
+        scene.add(points);
+
+        // --- Shapes Logic ---
+        let currentShape = 'random';
+        const shapes = ['sphere', 'saturn', 'heart', 'random'];
+
+        function updateShape(shapeType, handPos) {
+            const posAttr = geometry.attributes.position;
+            const colorAttr = geometry.attributes.color;
+
+            for (let i = 0; i < particleCount; i++) {
+                let x, y, z;
+                const t = i / particleCount;
+
+                if (shapeType === 'sphere') {
+                    const phi = Math.acos(-1 + (2 * i) / particleCount);
+                    const theta = Math.sqrt(particleCount * Math.PI) * phi;
+                    x = Math.cos(theta) * Math.sin(phi) * 2;
+                    y = Math.sin(theta) * Math.sin(phi) * 2;
+                    z = Math.cos(phi) * 2;
+                } else if (shapeType === 'saturn') {
+                    if (i < particleCount * 0.4) { // The Planet
+                        const phi = Math.random() * Math.PI * 2;
+                        const costheta = Math.random() * 2 - 1;
+                        const u = Math.random();
+                        const r = 1.2 * Math.pow(u, 1/3);
+                        const theta = Math.acos(costheta);
+                        x = r * Math.sin(theta) * Math.cos(phi);
+                        y = r * Math.sin(theta) * Math.sin(phi);
+                        z = r * Math.cos(theta);
+                    } else { // The Ring
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = 1.8 + Math.random() * 0.8;
+                        x = Math.cos(angle) * r;
+                        y = Math.sin(angle) * r * 0.2; // Flat ring
+                        z = Math.sin(angle) * r;
+                    }
+                } else if (shapeType === 'heart') {
+                    const angle = Math.random() * Math.PI * 2;
+                    x = 0.15 * (16 * Math.pow(Math.sin(angle), 3));
+                    y = 0.15 * (13 * Math.cos(angle) - 5 * Math.cos(2 * angle) - 2 * Math.cos(3 * angle) - Math.cos(4 * angle));
+                    z = (Math.random() - 0.5) * 0.5;
+                } else {
+                    x = (Math.random() - 0.5) * 10;
+                    y = (Math.random() - 0.5) * 10;
+                    z = (Math.random() - 0.5) * 10;
+                }
+
+                // Smoothly move towards target with hand offset
+                posAttr.array[i * 3] += (x + handPos.x - posAttr.array[i * 3]) * 0.1;
+                posAttr.array[i * 3 + 1] += (y + handPos.y - posAttr.array[i * 3 + 1]) * 0.1;
+                posAttr.array[i * 3 + 2] += (z - posAttr.array[i * 3 + 2]) * 0.1;
+            }
+            posAttr.needsUpdate = true;
+        }
+
+        // --- Hand Tracking ---
+        const videoElement = document.getElementById('webcam');
+        let handX = 0, handY = 0, isPinched = false;
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                // Mirror and map to 3D space
+                handX = (0.5 - landmarks[9].x) * 10; 
+                handY = (0.5 - landmarks[9].y) * 10;
+
+                // Simple pinch detection (Thumb tip to Index tip)
+                const distance = Math.sqrt(
+                    Math.pow(landmarks[4].x - landmarks[8].x, 2) +
+                    Math.pow(landmarks[4].y - landmarks[8].y, 2)
+                );
+
+                if (distance < 0.05 && !isPinched) {
+                    isPinched = true;
+                    const nextIndex = (shapes.indexOf(currentShape) + 1) % shapes.length;
+                    currentShape = shapes[nextIndex];
+                    // Randomize colors on switch
+                    const r = Math.random(), g = Math.random(), b = Math.random();
+                    for(let i=0; i<particleCount*3; i+=3) {
+                        points.geometry.attributes.color.array[i] = r;
+                        points.geometry.attributes.color.array[i+1] = g;
+                        points.geometry.attributes.color.array[i+2] = b;
+                    }
+                    points.geometry.attributes.color.needsUpdate = true;
+                } else if (distance > 0.1) {
+                    isPinched = false;
+                }
+            }
+        });
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 640, height: 480
+        });
+        cameraUtils.start();
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            updateShape(currentShape, { x: handX, y: handY });
+            points.rotation.y += 0.005;
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
 </body>
-
 </html>
